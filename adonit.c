@@ -126,6 +126,8 @@ int verbose = 0;
 char* touchscreen_device = NULL;
 char* pen_address = NULL;
 
+int32_t pressure;
+
 void write_event(uint16_t type, uint16_t code, int32_t value) {
     struct input_event ev;
 
@@ -142,20 +144,25 @@ void pen_update(uint16_t p)
 {
     int btn_0 = (p & 0x1);
     int btn_1 = (p & 0x2) >> 1;
+    int written = 0;
 
     if (btn_0 != prev_btn_0) {
         write_event(EV_KEY, BTN_0, btn_0);
+        written++;
     }
     prev_btn_0 = btn_0;
 
     if (btn_1 != prev_btn_1) {
         write_event(EV_KEY, BTN_1, btn_1);
+        written++;
     }
     prev_btn_1 = btn_1;
 
-    write_event(EV_ABS, ABS_PRESSURE, (p >> 5) & 0x7ff);
+    pressure = (p >> 5) & 0x7ff;
+    //write_event(EV_ABS, ABS_PRESSURE, (p >> 5) & 0x7ff);
 
-    write_event(EV_SYN, SYN_REPORT, 0);
+    if (written > 0)
+      write_event(EV_SYN, SYN_REPORT, 0);
 }
 
 gboolean touchscreen_update(GIOChannel *chan, GIOCondition cond, gpointer user_data) {
@@ -172,21 +179,30 @@ gboolean touchscreen_update(GIOChannel *chan, GIOCondition cond, gpointer user_d
         ev = (struct input_event *)buffer;
 
         if (ev->type == EV_SYN) {
-            //printf("PACK %i %i\n", ev->code, ev->value);
+            ev->type = EV_ABS;
+            ev->code = ABS_PRESSURE;
+            ev->value = pressure;
+            uinput_write_event(&uinfo, ev);
+            write_event(EV_SYN, SYN_REPORT, 0);
         } else if (ev->type == EV_KEY) {
-            //if (ev->code == BTN_TOUCH) {
-            //    ev->code = BTN_TOOL_PEN;
-            //}
-
+            if (ev->code == BTN_TOUCH) {
+                ev->code = BTN_TOOL_PEN;
+            }
             uinput_write_event(&uinfo, ev);
         } else if (ev->type == EV_ABS) {
-            if (ev->code == ABS_X || ev->code == ABS_Y) {
+            switch (ev->code) {
+              case ABS_X:
                 uinput_write_event(&uinfo, ev);
+                break;
+              case ABS_Y:
+                uinput_write_event(&uinfo, ev);
+                break;
+              //default:
+                //uinput_write_event(&uinfo, ev);
             }
         }
     }
 
-    write_event(EV_SYN, SYN_REPORT, 0);
 
     return TRUE;
 }
